@@ -171,6 +171,64 @@
 	    function flatten(array) {
 	    	return array.length > 0 ? $.fn.concat.apply([], array) : array
 	    }
+	    //字符串转成驼峰形式写法
+        camelize = function(str) { return str.replace(/-+(.)?/g, function(match, chr) { return chr ? chr.toUpperCase() : '' }) }
 
+        //将字符串编程-相隔的形式
+        function dasheriz (str){
+        	return str.replace(/::/g,'/')
+        	.replace(/([A-Z]+)([A-Z][a-z])/g,'$1_$2')
+        	.replace(/([a-z\d])([A-Z])/g,'$1_$2')
+        	.replace(/_/g,'-')
+        	.loLowerCase()
+        }
+		/*
+		数组去重，利用数组的indexOf方法返回某个元素在数组中的第一个索引实现，
+		当遍历数组时某个元素的下标与第一个索引不一致时说明之前已经出现同样的值了。
+		*/
+		uniq = function(array) {
+		    return filter.call(array, function(item, idx) {
+		        return array.indexOf(item) == idx
+		    })
+		}
+		/*
+			用来判定类名中是否存在classname 可能存在于 开始  中间 和结尾
+		*/
+		function classRE(name) {
+		    return name in classCache ?
+	        classCache[name] : (classCache[name] = new RegExp('(^|\\s)' + name + '(\\s|$)'))
+		}
+
+		//根据css属性名称name来判断value是否应该添加px单位
+		function maybeAddPx(name,value){
+      		return (typeof value == "number" && !cssNumber[dasherize(name)]) ? value + "px" :value
+		}
+		/*
+			获取某种元素的默认显示方式。实现方式是创建一个临时节点，插入body元素中，
+			之后使用getComputedStyle获取display属性值。不过，其实这不能真正地获取默认display值，
+			因为这会被样式表影响。这个函数用在原型对象中的show方法上，因为要考虑显示出来时该有的display属性值
+		*/
+		function defaultDisplay(nodeName) {
+		    var element, display
+		    if (!elementDisplay[nodeName]) {
+		        element = document.createElement(nodeName)
+		        document.body.appendChild(element)
+		        display = getComputedStyle(element, '').getPropertyValue("display")
+		        element.parentNode.removeChild(element)
+		        display == "none" && (display = "block")
+		        elementDisplay[nodeName] = display
+		    }
+	        return elementDisplay[nodeName]
+		}
+		/*
+		获取某个元素的子元素。先判断元素是否有children属性，否者获取元素的所有子节点，然后通过nodeType筛选出元素。
+		*/
+		function children(element) {
+		    return 'children' in element ?
+			    slice.call(element.children):
+		        $.map(element.childNodes, function(node) {
+		        	if (node.nodeType == 1) return node
+			    })
+		}
 	})()
 })
