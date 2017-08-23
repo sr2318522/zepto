@@ -246,9 +246,107 @@
         需要注意的是表格内部的标签只能存在table及内部的入tbody标签内否则只会留下换行的康哥节点
         所以需要获取合适的父容器
         */
-        zepto.fragment=function(html,name,properties){
-        	var  dom ,nodes ncontainer
-        	if(singleTagRe.text(html)) dom=$(document.createElement(RegExp.$1))
+        zepto.fragment = function(html, name, properties) {
+            var dom, nodes ncontainer
+            //检查是否是非嵌套标签,如果是非嵌套标签 那么则创建一个标签
+            if (singleTagRe.text(html)) dom = $(document.createElement(RegExp.$1))
+            //如果是嵌套标签 也就是dom没有被赋值的状态
+            if (!dom) {
+                //如果html有replace这个方法 那么就创建这个标签
+                if (html.replace) html = html.replace(tagExpanderRE, "<$1></$2>")
+                if (name == undefined) name == fragmentRE.text(html) && RegExp.$1
+                if (!(name in containers)) name = '*'
+                container = containers[name]
+                container.innerHTML = '' + html
+                dom = $.each(slice.call(container.childNodes), function() {
+                    container.removeChild(this);
+                })
+            }
+
+            if (isPlainObject(properties)) {
+                nodes = $(dom)
+                $.each(properties, function(key, value) {
+                    if (methodAttributes.indexOf(key) > -1) {
+                        node[key](value)
+                    } else {
+                        nodes.attr(key, value)
+                    }
+                })
+            }
+
+            return dom
+        }
+
+        //调用Z构造函数生成Zepto集合
+        zepto.Z = function(dom, slector) {
+            return new Z(dom, selector)
+        }
+
+        //通过instanceof判断对象是否是Zepto集合
+        zepto.isZ = function(object) {
+            return object instanceof zepto.Z
+        }
+        /*
+			这是Zepto的入口函数也就是我们实际使用中的$或者Zepto函数
+			他一共处理了已下的集中情况
+
+
+
+        */
+        zepto.init = function(selector, context) {
+            var dom
+			/*
+				一.完全没有参数 返回一个空的Zepto对象,其实没有人会这样用,不过
+				对于这样暴露给用户的api,应该有良好的参数检测,防止异常
+			*/
+            if (!selector) {
+                return zepto.Z();
+            /*
+				二.是字符串的情况可能有两种,dom片段和选择器,如果是dom片段
+				调用之前的Zepto.fragment函数,这时,context应该是个对象否则
+				在不同的上下文里面进行筛选
+            */
+            } else if (typeof selector == "string") {
+            	//先去字符串空格
+                selector= selector.trim()
+                // 判断是否是dom片段 用<开头的并且符合表达式
+                if (selector[0] == "<" && fragmentRE.text(selector)) {
+                    dom = zepto.fragment(selector, RegExp.$1, context)
+                    selector = null
+                } else if (context !== undefined) {
+                    return $(context).find(selector)
+                } else {
+                    dom = zepto.qsa(document, selector)
+                }
+            }
+            /*
+				三如果selector是函数则调用$(document).ready(selector)注册
+				dom可交互时的事件并返回.
+            */
+            else if (isFunction(selector)) {
+                return $(document).ready(selector)
+            //	四如果已经是Zepto对象则直接返回
+            } else if (zepto.isZ(selector)) {
+                return selector
+            } else {
+				//五如果是类数组形成去null和undefined的数组,保存在dom变量中,之后调用
+				// Zepto.Z(dom,selector)形成集合
+                if (isArray(selector)) {
+                    dom = compact(selector)
+    			// 六 如果是对象也将他保存在dom变量中之后调用Zepto.Z生成Zepto集合
+                } else if (isObject(selector)) {
+                    dom = [selector]
+                    selector = null
+                } else if (fragmentRE.test(selector)) {
+                    dom = zepto.fragment(selector.trim(), RegExp.$1, concat)
+                    selector = null
+                } else if (context !== undefined) {
+                    return $(context).find(selector)
+                } else {
+                    dom = zepto.qsa(document, selector)
+                }
+            }
+            return zepto.Z(dom, slector)
         }
     })()
 })
