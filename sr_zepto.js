@@ -348,5 +348,25 @@
             }
             return zepto.Z(dom, slector)
         }
+
+        //入口函数，可以看到它是Zepto.init的简单封装。
+        $=function (selector,context) {
+        	return zepto.init(selector,context)
+        }
+        /*
+        	对象拷贝函数。deep为真则采用递归深拷贝。
+        	具体实现是检测source属性是原始值还是数组还是对象，
+        	如果是后两者，则再次调用extend。其实这里处理深拷贝并不严谨，
+        	可能会形成循环引用，不过Zepto目标就是轻量兼容，所以某些代码不严谨也很正常。
+        */
+        $.extend=function (target) {
+        	var deep,args=slice.call(arguments,1)
+        	if (typeof target =='boolean') {
+        		deep=target
+        		target=args.shift()
+        	}
+        	args.forEach(function (arg) {extend(target,arg,deep)})
+        	return target
+        }
     })()
 })
