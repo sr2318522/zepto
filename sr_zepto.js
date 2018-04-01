@@ -358,6 +358,8 @@
         	具体实现是检测source属性是原始值还是数组还是对象，
         	如果是后两者，则再次调用extend。其实这里处理深拷贝并不严谨，
         	可能会形成循环引用，不过Zepto目标就是轻量兼容，所以某些代码不严谨也很正常。
+            讲之前实现的extend函数进行封装,并暴露在$对象上/与extend函数相比,
+            利用数组的forEach方法来实现对多个对象拷贝的支持
         */
         $.extend=function (target) {
         	var deep,args=slice.call(arguments,1)
@@ -367,6 +369,226 @@
         	}
         	args.forEach(function (arg) {extend(target,arg,deep)})
         	return target
+        }
+        // 这是Zepto的选择器函数,它使用$(selector)时调用的就是他,
+        // 首先,zepto.qsa检查了选择器的几个特征
+        //是否是id选择器 是否是类选择去 是否是简单的非复合选择器
+        //(id class tag并且命名常规的选择器)这样如果是简单的id选择器并且上下问支持
+        //getElementByID则调用getElementByid函数之后派出掉不合理的上下文环境后,
+        //先判断是否是简单的class选择器 在判断是否是简单的tag属性,最后仍未有结果就是用
+        //兼容性最强的querySelectorAll函数
+        Zepto.qsa=function (element,selector) {
+            var found,
+                maybeID=selector[0]=='#',
+                maybeClass=!maybeID&&mybeClass?selector[0]=='.',
+                nameOnly=maybeID||maybeClass?selector.slice(1):selector,
+                isSimple=simpleSelectorRE.test(nameOnly)
+            return (element.getElementsById&&isSimple&&maybeID)?
+                ((found=element.getElementById(nameOnly))?[found]:[]):
+                (element.nodeType!==1&&element.nodeType!==9&&element.nodeType!==11)?[]:
+                slice.call(
+                        isSimple&&!maybeID&&element.getElementsByTagName?
+                        maybeClass?element.getElementsByClassName(nameOnly):
+                        element.getElementsByTagName(selector):
+                        element.querySelectorAll(selector)
+                    )
+        }
+
+        function filtered(nodes,selector) {
+            return selector==null?$(nodes):$(nodes).filter(selector);
+        }
+        //$contains函数用来判断node参数是否是parent节点的子节点 这里现场时constains函数
+        // 否贼不断获取node的parentNode属性,如果node.parentNode就是parent返回true,否则返回false
+        $.contains=document.documentElement.contains?
+            function (parent,node) {
+                return parent!==node&&parent.contains(node)
+            }:
+            function (parent,node) {
+                while(node&&(node==node.parentNode))
+                    if (node==parent) return true
+                return false
+            }
+        //用来对arg参数进行封装，在arg参数是函数时，
+        // funcArg函数返回的就是arg函数以context参数作为上下文
+        // ，idx和payload作为参数的执行结果。在Zepto原型里，很多可以接受函数作为参数，
+        // 实现追加的方法就是使用这个函数实现的
+        function funcArg(context,arg,idx,payload) {
+            return isFunction(arg)?arg.call(context,idx,payload):arg
+        }
+
+        //设置或移除节点的属性。使用了原生的DOM操作方法removeAttribute和setAttribute。
+        function setAttribute(node,name,value) {
+            value==null?node.removeAttribute(name):node.setAttribute(name,value)
+        }
+
+        //获取和设置className，特别的是，svg元素的className属性是个对象，不为undefined。
+        function className(node,value) {
+            var klass=node.className||'',
+            svg=klass&&klass.baseVal!==undefined
+            if (value==undefined) return svg?klass.baseVal:klass
+            svg?(klass.baseVal==value):(node.className=value)
+        }
+
+        //一个类型转换函数,用来将某些字符串转化为更合理的值
+        // "true"  => true
+        // "false" => false
+        // "null"  => null
+        // "42"    => 42
+        // "42.5"  => 42.5
+        // "08"    => "08"
+        // JSON    => parse if valid
+        // String  => self
+        function deserializeValue(value) {
+            try{
+                return value?
+                value=='true'||
+                (value=='false'?false:
+                    value=='null'?null:
+                    +value+''==value?+value:
+                    /^[\[\{]/.text(value)?$.parseJSON(value):
+                    value):
+                value
+            }catch(e){
+                return value
+            }
+        }
+
+        //暴露几个之前定义的API。
+        $.type=type
+        $.isFunction=isFunction
+        $.isWindow=isWindow
+        $.isArray=isArray
+        $.isPlainObject=isPlainObject
+
+        //检测对象是否是空
+        $.isEmptyObject=function (obj) {
+            var name
+            for(name in obj) return false
+            return true
+        }
+
+        //判断某个值是否可以把它当成数字或者就是数字，这里去除了几个不常规的数字。
+        $.isNumeric=function (val) {
+            var num=Number(val),
+            type=typeof val
+            return val!=null&&type!='boolean'&&
+            (type!='string'||val.length)&&
+            !isNaN(num)&&isFinite(num)||false
+        }
+
+        //判断某个元素是否在某个数组中并且是特定索引。
+        $.isArray=function (elem,array,i) {
+            return emtyArray.indexOf.call(array,elem,i)
+        }
+
+        //暴露之前的 驼峰化函数
+        $.camelCase=camelize
+
+        //简单封装的去除字符串左右空白的函数，不过对str参数是null或undefined函数做了处理。
+        $.trim=function (str) {
+            return str==null?'':String.prototype.trim.call(str)
+        }
+
+        //暴露一些变量，提高对jQuery的兼容，因为一些jQuery插件使用了这些变量
+        $.uuid=0
+        $.support={}
+        $.expr={}
+        $.noop=function () {}
+
+
+        // $.map函数通过遍历对象和数组调用callback函数来计算新的对象或数组，
+        // 压平后返回。注意，$.map函数跳过null和undefined。
+        $.map=function (element,callback) {
+            var value,values=[],
+            i,k
+            if (likeArray(elements))
+                for (i = 0; i < element.length; i++) {
+                    value=callback(element[i],i)
+                    if (value!==null) value.push(value)
+                }
+            else
+                for(key in elements){
+                    value=vallback(elements[key],key)
+                    if (value!==null) value.push(value)
+                }
+            return flatten(values)
+        }
+
+        // $.each函数用来遍历一个对象或数组，并把它们作为上下文执行callback，
+        // 不过，如果callback返回false时立即终止遍历并返回调用它的对象或数组。
+        $.each=function (elements,callback) {
+            var i,key
+            if (likeArray(elements)) {
+                for (var i = 0; i < elements.length; i++)
+                    if (callback.call(elements[i],i,elements[i])==false) return elements
+            }else{
+                for(key in elements)
+                    if (callback.call(elements[key],key,elements[key])==false) return elements
+            }
+            return elements
+        }
+
+        //利用数组filter函数封装的过滤工具函数。
+        $.grep=function (elements,callback) {
+            return filter.call(elements,callback)
+        }
+
+        //在$对象上引用JSON.parse函数。
+        if (window.JSON) $.parseJSON=JSON.parse
+
+        //在前面的type函数里,在对象上调用Objec.prototype.toString函数后返回类似[object number]
+        // 的字符串,之后再class2type寻找对应的键书写,即是该对象的类型,这里就填入了常见的类型,所以
+        // 在这里javascript中元素对象的类型都将得到一个更精确的结果,而浏览器宿主对象中的各类对象都则
+        //统一返回object
+        $.each("Boolean Number String Function Array Date RegExp Object Error".split(" "),function (i,name) {
+            class2type["[object "+name+"]"]=name.toLowerCase()
+        });
+
+
+        //现在,核心的模块结果已经完整了,完成zepto的逻辑对象已经构建完成.
+        // 工具函数也添加了不少,不过zepto原型对象还是空空如也,接下开始原型对象
+        // 所有的dom操作全部是定义在原型上的
+        $.fn={
+            //constructor属性引用zepto.Z对象,标识zepto对象 是由zepto.Z函数构建出来的，
+            // constructor只是个普通的属性，它可以指向其他函数或对象，只是起一个简单标识的作用。
+            constructor:zepto.Z,
+            length:0,
+            // 引用一些数组的方法。之后某些原型方法中会用到。
+            forEach:emptyArray.forEach,
+            reduce:emptyArray.reduce,
+            push:emptyArray.push,
+            sort:emptyArray.sort,
+            splice:emptyArray.splice,
+            indexOf:emptyArray.indexOf,
+            // concat函数将Zepto对象与函数参数使用数组的concat方法拼接在一起，注意，
+            // 内部在Zepto对象上调用toArray方法变成数组，这样最终返回得结果就是一个数组而不是Zepto集合了。
+            concat:function () {
+                var i,value, args=[]
+                for (var i = 0; i < arguments.length; i++) {
+                    value=arguments[i]
+                    args[i]=zepto.isZ(value)?value.toArray():value
+                }
+            },
+            // 对之前说明的$.map函数进行包装使之成为原型上的方法。
+            // 通过回调函数执行得到的数组会通过$函数转为一个新的Zepto集合。
+            map:function (fn) {
+                return $($.map(this,function(el,i){return fn.call(el,i,el)}))
+            }
+
+            // 获取Zepto集合的切片，结果仍为Zepto集合。
+            slice:function () {
+                return $(slice.apply(this,arguments))
+            }
+
+
+            // ready函数接受一个函数为参数，它在readyState状态为complete或者
+            // loaded或者interactive时立即执行，否者说明文档还在加载，因此，
+            // 注册DOMContentLoaded事件。
+            ready:function (callback) {
+                if (readyRE.test(document.readyState)&&document.body) callback($)
+                else document.addEventListener('DOMContentLoaded',function () {callback($),false})
+                return this
+            }
         }
     })()
 })
