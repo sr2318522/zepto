@@ -884,6 +884,10 @@
                 }):
                 (0 in this?this.pluck('textContent').join(""):null)
             },
+            // attr方法用来设置和获取集合中元素的属性。
+            // 在获取属性的情况下通过getAttribute函数返回属性值。
+            // 如果用来设置则对集合进行遍历，这时，name可能是对象，
+            // 或者value属性是函数，它们分别通过对象遍历与funcArg函数处理。
             attr:function (name,value) {
                 var result
                 return (typeof name=='string'&&!(1 in arguments))?
@@ -894,7 +898,362 @@
                         for(key in name)setAttribute(this,key,name[key])
                     else setAttribute(this,name,funcArg(this,value,idx,this.getAttribute(name)))
                 });
+            },
+            //使用之前定义的setAttribute函数来移除属性。
+            // “name.split（" "）”来把name参数分割成数组来进行遍历。split方法使用如下：
+            removeAttr:function (name) {
+                return this.each(function () {
+                    this.nodeType===1&&name.splice(' ').forEach(function (attribute) {
+                        setAttribute(this,attribute);
+                    },this);
+                })
+            },
+            // 获取节点属性。内部实现与上面几个函数逻辑类似。
+            // propMap用来将一些特殊的属性进行正确转化，比如将“for”转为“htmlFor”。
+            prop:function (name,value) {
+                name=propMap[name]||name
+                return (1 in arguments)?
+                this.each(function (idx) {
+                    this[name=funcArg(this,value,idx,this[name])]
+                }):
+                (this[0]&&this[0][name])
+            },
+            // 删除属性。这里直接使用delete操作符删除节点对象的属性。
+            removeProp:function (name) {
+                name=propMap[name]||name;
+                return this.each(function () {
+                    delete this.name;
+                })
+            },
+            // data函数用来获取和添加元素的“数据”。
+            // 它的内部使用以data为前缀的属性来实现，
+            // 具体来说，它先把保存数据的键名中大写字母部分重写为已“-”分割的形式，
+            // 接着进行DOM属性操作。在获取属性时，如果属性值不为null，
+            // 则使用之前定义的deserializeValue函数处理后再返回。
+            // 仅仅使用标准的data属性意味着它与jQuery中的data函数在功能上有很大的区别，
+            // 后者可以使用各种数据结构。
+            data:function (name,value) {
+                var attrName='data-'+name.replace(capitalRE,'-$1').toLowerCase();
+                var data=(1 in arguments)?
+                this.attr(attrName,value):
+                this.attr(attrName);
+                return data!==null?deserializeValue(data):undefined;
+            },
+            // val函数用于设置和获取元素的value属性。
+            // 在查询的情况下，如果是select元素并且带有multiple属性，
+            // 则将它被选中的option子元素筛选出来并通过pluck方法一并获取它们的value属性。
+            val:function (value) {
+                if (0 in arguments) {
+                    if (value==null) value='';
+                    return this.each(function(idx) {
+                        this.value=funcArg(this,value,idx,this.value)
+                    });
+                }else{
+                    return this[0]&&(this[0].multiple?
+                        $(this[0]).find('option').filter(function() {
+                            return this.selected
+                        }).pluck('value'):
+                        this[0].value)
+                }
+            },
+            // offset方法用来获取元素的位置与大小信息。
+            // 在获取操作中，如果元素尚未在DOM中则返回“{top:0,left:0}”,
+            // 否则先是通过getBoundingClientRect方法获取元素相对于视口的位置属性，
+            // 之后加上页面滚动的偏移量就得到元素相对于文档的位置了。
+            // 对于设置的情况，遍历每个元素，获取它的父元素的offset属性，
+            // 之后将要设置的偏移位置减去父元素的偏移位置就能得到实际应该设置的left与top属性。
+            offset:function (corrdinates) {
+                if (coordinates) return this.each(function (index) {
+                    var $this=$(this),
+                    coords=funcArg(this,coordinates,index,$this.offset()),
+                    parentOffset=$this.offsetParent().offset(),
+                    props={
+                        top:coords.top-parentOffset.top,
+                        left:coords.left-parentOffset.left
+                    }
+                    if ($this.css('position')=='static') props['position']='relative'
+                        $this.css(props)
+                })
+                if (!$this.length) return null
+                if (document.documentElement!==this[0]&&!$.contains(document.documentElement,this[0]))
+                    return {top:0,left:0}
+                var obj=this[0].getBoundingClientRect()
+                return {
+                    left:obj.left+window.pageXOffset,
+                    top:obj.top+window.pageYOffset,
+                    width:Math.round(obj.width),
+                    height:Math.round(obj.heigjt)
+                }
+            },
+            // css方法用来获取和设置样式的属性。
+            // 在获取的情况下，显示通过style对象获取通过style属性设置的样式，
+            // 否则使用window对象上的getComputedStyle方法获取计算样式。
+            // 而设置功能则通过拼接元素的cssText属性实现，
+            // 元素的的cssText属性返回该元素的style属性值字符串，
+            // 对于某些属性，maybeAddPx函数用来添加“px”后缀’。
+            // 设置时传入的属性值为假值且不为零时则使用style
+            // 对象上的removeProperty方法来移除style属性内嵌的对应样式。
+            // 另外，css方法支持批量操作。其实css函数可以做点改进，将查询情况下的return 语句改为：
+             // return element.style[camelize(property)] ||
+             // getComputedStyle(element, '').getPropertyValue(dasherize(property))
+             //dasherize函数将驼峰形式转化为横杠相连的形式
+            css:function (property,value) {
+                if (arguments.length<2) {}
+                    var element=this[0]
+                if (typeof property=='string') {
+                    if (!element) return
+                    return element.style[camelize(property)]||getComputedStyle(element,'').getPropertyValue(property)
+                }else if(isArray(property)){
+                    if (!element) return
+                    var props ={};
+                    var computedStyle=getComputedStyle(element,'')
+                    $.each(property,function (_,prop) {
+                        prop[prop]=(element.style[camelize(prop)])||computedStyle.getPropertyValue(prop)
+                    })
+                    return props
+                }
+                var css='';
+                if (type(property)=='string') {
+                    if (!value&&value!==0) {
+                        this.each(function () {
+                            this.style.removeProperty(dasherize(property))
+                        })
+                    }else{
+                        css= dasherize(property)+':'+maybeAddPx(property,value)
+                    }
+                }else{
+                    for(key in property)
+                        if (!property[key]&&property[key]!==0)
+                            this.each(function () {this.style.removeProperty(dasherize(key))});
+                        else
+                            css+=dasherize(key)+':'+maybeAddPx(key,property[key])+';'
+                }
+                return this.each(function () {
+                    this.style.cssText+=';'+css
+                });
+            },
+            // 获取某个元素在Zepto集合中的索引，或者获取集合中第一个元素在相邻元素中的索引。
+            index:function (element) {
+                return element?this.indexOf($(element)[0]:this.parent().children().indexOf(this[0]))
+            },
+            // 判断集合中是否有元素满足某个类名。
+            hasClass:function (name) {
+                if (!name) return false
+                return emptyArray.some.call(this,function (el) {
+                    return this.text(className(el))
+                },classRE(name));
+            },
+            // addClass方法用来为集合中每个元素添加类名。
+            // 具体实现是先通过className属性获取原有类名，
+            // 接着将新类名放在数组之中，最后，
+            // 将旧类名与即将要添加的新类拼接在一起再通过className函数重新赋值给className属性。
+            // 具体的拼接规则是，原有的className属性加上一个合适的分隔字符串（
+            // 如果原有className存在的话是" "否则是空字符串），最后再加上新类名数组调用join
+            // 方法得到的以空格隔开的字符串，这样就能得到了全新的className属性值。
+            // 另外函数还做了些检查工作，比如防止重复的类名被加入。
+            addClass:function (name) {
+                if (!name) return this
+                return this.each(function (idx) {
+                    if (!('className' in this)) return
+                    classList=[]
+                    var cls =className(this),
+                    newName=funcArg(this,name,idx,cls)
+                    newName.split(/\s+/g).forEach(function (klass) {
+                        if (!$(this).hasClass(klass)) classList.push(klass)
+                    },this)
+                    classList.length&&className(this,cls+(cls?' ' :'')+classList.join(' '))
+                })
+            },
+            // removeClass函数先为name参数，
+            // 也就是即将被移除的类名生成能匹配元素className属性的正则表达式，
+            // 比如当name为"foo"时，正则表达式为/(^|\s"")foo(\s|$)/，
+            // 于是这个表达式将可以测试出元素的className是否包含这个类。
+            // 在这里通过调用字符串的replacr方法直接将前文提到的正则表达式匹配到的类名替换成空字符串，
+            // 这样就达到了移除某个类的目的。
+            removeClass:function (name) {
+                return this.each(function (idx) {
+                    if (!('className' in this)) return
+                    if ( name ==undefined) return className(this,'')
+                    classList=className(this);
+                    funcArg(this,name,idx,classList).split(/\s+/g).forEach(function (klass) {
+                        classList=classList.replace(classRE(klass),' ')
+                    })
+                    className(this,classList.trim());
+                })
+            },
+            // toggleClass函数通过元素是否包含某个类来做出相反的添加或移除类的操作，
+            // 或者根据when的真假性来添加或移除类。
+            // 内部实现主要是通过addClass或者removeClass函数以及一些参数判断来完成。
+            toggleClass:function (name,when) {
+                if (!name) return this;
+                return this.each(function (idx) {
+                    var $this=$(this),
+                    names=funcArg(this,name,idx,className(this))
+                    names.split(/\s+/g).forEach(function (klass) {
+                        (when==undefined?!$this.hasClass(klass):when)?
+                        $this.addClass(klass):$this.removeClass(klass)
+                    })
+                })
+            },
+            scrollTop:function (value) {
+                if (!this.length) return
+                    var hasScrollTop='scrollTop' in this[0]
+                if (value==undefined) return hasScrollTop?this[0].pageYOffset
+                return this.each(hasScrollTop?
+                    function () {this.scrollTop=value }
+                    function () {this.scrollTo(this.scrollX,value)})
+            },
+            scrollLeft:function (value) {
+                if (!this.length) return
+                var hasScrollLeft='scrollLeft' in this[0]
+                if (value==undefined) return hasScrollTop?this[0].scrollTop:this[0].pageXOffset
+                return this.each(hasScrollLeft?
+                    function () {this.scrollLeft=value }
+                    function () {this.scrollTo(value,this.scrollY)})
+            },
+            // position函数返回集合中第一个元素的相对于定位元素的偏移。
+            // 实现原理是找出定位元素，这样就能得到定位元素的offset，
+            // 也就是相对于文档的偏移。之后再获取第一个元素的相对于文档的偏移。
+            // 然后，因为offset属性是从border开始计算偏移的，
+            // 所以应该将第一个元素的offset.top与offset.left减去margin，
+            // 这样得到的才是包括margin的偏移。另外，注意定位元素的border，
+            // 因为最终返回的top和left是指集合中第一个元素到定位元素的content区域边缘的偏移。
+            position:function () {
+                if (this.length) return
+                var elem=this[0],
+                offsetParent=rootNodeRE.text(offsetParent[0].nodeName)?{top:0,left:0}:offsetParent.offset()
+                // 减去元素的margin，因为offset函数返回的left与top是从边框开始计算的
+                offset.top-=parseFloat($(elem).css('margin-top'))||0
+                offset.left-=parseFloat($(elem).css('margin-left'))||0
+                //加上border，不然接下来相减会多出border宽度的量
+                parentOffset.top+=parseFloat($(offsetParent[0]).css('border-top-width'))||0
+                parentOffset.left+=parseFloat($(offsetParent[0]).css('border-left-width'))||0
+                return{
+                    top:offset.top - parentOffset.top,
+                    left:offset.left - parentOffset.left
+                }
+            },
+            // 获取元素定位时的参照元素。使用了offsetParent属性。
+            offsetParent:function () {
+                return this.map(function() {
+                    var parent=this.offsetParent||document.body
+                    while(parent&&!rootNodeRE.test(parent.nodeName)&&$(parent).css('position')=='static')
+                        parent=parent.offsetParent
+                    return parent
+                })
             }
+            //$.fn对象的属性与方法的定义暂时结束，接下来会用$.fn[method]来定义原型方法
         }
+        //给remove方法添加一个别名。
+        $.fn.detach=$.fn.remove;
+        // 在原型上添加width和height方法。
+        // 在查询情况下需要对window对象，
+        // document对象和元素进行不同区分：
+        // window对象返回window.innerWidth（innerHeight）属性
+        // ，document对象返回document.scrollWidth（scrollHeight）属性
+        // ，如果是元素先查询offset，之后再返回对应属性。设置时，直接通过css函数设置。
+        ['width','height'].forEach(function (dimension) {
+            var dimensionProperty=dimension.replace(/./,function (m) {
+                return m[0].toUpperCase()
+            })
+            $.fn[dimension]=function (value) {
+                var offset,el=this[0];
+                if (value==undefined) return isWindow(el)?el['inner'+dimensionProperty]:
+                    isDocument(el)?el.documentElement['scroll'+dimensionProperty]:
+                    (offset=this.offset()&&offset[dimension])
+                else return this.each(function (idx) {
+                    el=$(this)
+                    el.css(dimension,funcArg(this,value,idx,ek[dimension]()))
+                });
+            }
+        })
+        // 递归遍历一个节点及其子节点。每遍历一个node执行一次fun(node)。
+        function traverseNode(node,fun) {
+            fun(node)
+            for(var i =0,len=node.childNodes.length;i<len;i++)
+                traverseNode(node.childNodes[i],fun)
+        }
+
+        // 这段代码用来为原型生成after，prepend等八个与在不同位置插入元素相关的方法。
+        // 在DOM标准中，存在insertBefore方法来进行插入操作。
+        // 所以，这八个方法都是改变insertBefore的调用元素和后一个参数来做到的。
+        // 具体来说： adjacencyOperator变量为['after', 'prepend', 'before', 'append']，
+        // 这样，通过 var inside = operatorIndex % 2 就可以区分出这四个操作是“内部操作”还是“外部操作”，
+        // 所谓“外部操作”指的是对发起这个操作的元素的相邻方向进行的操作，就是after与before，
+        // 而“内部操作”指的是对发起操作的元素的子元素集合进行的操作，就是append与prepend。
+        // 比如，after在数组中的索引是0，这样inside就是0，这表示after操作是外部操作。接下来，
+        // 先获取参数返回一个包含即将要被插入的元素的集合，之后便是运用原生的insertBefore方法进行操作了。
+        // 如何操作？第一，获取不同的parent元素，比如，当进行after插入时，parent元素的就是进行after操作的元素的父元素。
+        // 第二，获取一个合适的元素作为insertBefore的第二个参数。于是，比如执行$('')，
+        // 先是获取#foo的父元素作为insertBefore的调用上下文，获取#foo的nextSibling作为insertBefore的第二个参数，
+        // 这样就可以在#foo之后插入#bar了。 特殊地，当你插入script元素时，script插入后会被立即执行，
+        // 此外，要把“”写为“<\ script="">”，因为前者会被解析错误。其实这里对脚本的处理只是一种当用户
+        // 非要这样使用时的一种兼容，插入脚本的良好实现应该是在head标签内插入。
+        // 这里说完了after，prepend，before，append的实现，对于另外四个方向的操作，实现的内部将它们进行相反调用即可。
+        adjacencyOperators.forEach(function (operator,operatorIndex) {
+            var inside=operatorIndex%2 //区分出“内部操作”与“外部操作”
+
+            $.fn[operator]=function () {
+                var argType,nodes=$.map(arguments,function (arg) {
+                    var arr=[]
+                    var argType=type(arg)
+                    if (argType=='array') {
+                        arg.forEach(function (el) {
+                            if (el.nodeType!==undefined) return arr.push(el)
+                            else if ($.zepto.isZ(el)) return arr=arr.concat(el.get())
+                            arr=arr.concat(zepto.fragment(el))
+                        })
+                        return arr
+                    }
+                    return argType=='object'||arg==null?
+                        arg:zepto.fragment(arg)
+                }),
+                parent,copyByClone=this.length>1
+                if (nodes.length<1) return this
+                return this.each(function(_,target) {
+                    parent=inside?target:target.parentNode
+                    target=operatorIndex==0?target.nextSibling:
+                    operatorIndex==1?target.firstChild:
+                    operatorIndex==2?target:null
+
+                    var parentInDocument=$.contains(document.documentElement,parent)
+
+                    nodes.forEach(function (node) {
+                        if (copyByClone) node=node.cloneNode(true)
+                        else if (!parent) return $(node).remove()
+
+                        parent.insertBefore(node,target)
+                        if (parentInDocument) traverseNode(node,function (el) {
+                            if (el.nodeName!=null&&el.nodeName.toUpperCase()==='SCRIPT'&&(!el.type||el.type==='text/javascript')&&!el.src) {
+                                var target=el.ownerDocument?el.ownerDocument.defaultView:window;
+                                target['eval'].call(target,el.innerHTML)
+                            }
+                        })
+                    })
+                });
+            }
+
+            //处理相反操作
+            // after    => insertAfter
+            // prepend  => prependTo
+            // before   => insertBefore
+            // append   => appendTo
+            $.fn[inside?operator+'To':'insert'+(operatorIndex?'Before':'After')]=function (html) {
+                $(html)[operator](this)
+                return this
+            }
+        })
+
+        zepto.Z.prototype=Z.prototype=$.fn;
+        zepto.uniq=uniq;
+        zepto.deserializeValue=deserializeValue;
+        $.zepto=zepto;
+        return $
+
+        // 将形成的原型对象$.fn为挂载在Z.prototype与Zepto.Z.prototype上，
+        // 将两个方法挂载在Zepto对象上，最后把Zepto挂载在$入口函数上，并返回$，
+        // 最终把入口函数挂载在window对象上。至此，Zepto库的核心部分——主体结构与DOM除事件外的操作已经完成。
+        window.Zepto=Zepto;
+        window.$===undefined&&(window.$=zepto)
     })()
 })
