@@ -1785,7 +1785,7 @@
                     urlAnchor=document.createElement('a')
                     urlAnchor.href=settings.url
                     urlAnchor.href=urlAnchor.href;
-
+                    // 今天先写到这里
                 }
             }
         })(Zepto)
