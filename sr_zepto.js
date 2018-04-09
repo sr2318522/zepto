@@ -1748,6 +1748,27 @@
             }
             //一个空函数作为Ajax配置中诸如success，complete等回调函数的默认值。
             function empty() {}
+
+
+
+            // $.ajaxJSONP函数用来完成JSONP请求。一个常见JSONP
+            // URL如coolshell.cn/t.php?n=10&callback=print，当发出如上请求时，
+            // 将返回文本print(result)。所以将URL作为一个script元素的src属性并插入
+            // DOM中就会返回文本print(result)，它将作为js代码调用，最终浏览器将执行p
+            // rint(result)，这样就完成了一个JSONP的请求。而$.ajaxJSONP函数就对这些
+            // 过程进行了封装。主要逻辑是：
+            // 如果请求对象过于简略，进入$.ajax函数，并在$.ajax函数内部做些必要的配置后重新进入$.ajaxJSONP逻辑。
+            // 如果没有指定回调函数名称jsonpCallback，使用之前定义的jsonp变量作为回调函数名并自增为下一次使用做准备
+            // 获取与回调函数名称相同的全局函数，之后会被重写
+            // 定义函数abort，这样当请求事件超时后将调用它进而触发error事件
+            // 定义一个xhr对象，在发出请求会返回，引用了abort函数，注意这里只是为了API风格一致，JSONP和XMLHttpRequest没有关系
+            // 监听刚刚创建的scrip标签的load和error事件，请求成功后将调用ajaxSuccess函数
+            // 重写与回调函数同名的全局函数，将它获取的参数对象赋值给responseData，
+            // 假定请求返回的脚本会执行print(result)，result为数据，这样就会将result保存至responseData变量。
+            // 将URL带上回调函数，比如上面提到的URL使用时作为URL参数是coolshell.
+            // cn/t.php?n=10&callback=？，在之后的实际调用时将?替换回调函数名
+            // 将script元素插入head
+            // 使用timeout参数设置超时时间
             $.ajaxJSONP=function (option,deferred) {
                 if (!('type' in options)) return $.ajax(options)
                 var _callbackName=options.jsonpCallback;
@@ -1762,10 +1783,91 @@
                 var abortTimeout;
 
                 if (deferred) deferred.promise(xhr);
+
+                $(script).on('load error',function (e,errorType) {
+                    clearTimeout(abortTimeout)
+                    $(script).off().remove();
+
+                    if (e.type=='error'||!responseData) {
+                        ajaxError(null,errorType||'error',xhr,options,deferred)
+                    }else{
+                        ajaxSuccess(responseData[0],xhr,options,deferred)
+                    }
+
+                    window[callback]=originalCallback
+                    if (responseData&&$.isFunction(originalCallback)) {
+                        originalCallback(responseData[0])
+                    }
+                    originalCallback=responseData=undefined;
+                })
+
+                if (ajaxBeforeSend(xhr,options)=== false) {
+                    abort('abort');
+                    return xhr
+                }
+
+                window[callbackName]=function () {
+                    responseData=arguments
+                }
+
+                script.src=options.url.replace(/\?(.+)=\?/,'?$1='+callbackName)
+                document.head.appendChild(script);
+
+                if (options.timeout>0) abortTimeout=setTimeout(function () {
+                    abort('timeout')
+                },options.timeout)
+                return xhr
             }
 
 
-
+            // 保存默认的Ajax配置。HTTP请求方式默认为GET，之后的四个回调函数将会在请求的不同阶段调用、
+            // context指定前面的几个回调函数在执行时的上下文，默认为null、global默认为true，
+            // 表示是否触发“全局事件”，“全局事件”意味着开发者可以以监听的方式对Ajax请求的不同阶段并作出反应
+            // ，xhr引用实际的XMLHttpRequest对象，有时十分有用。accepts提供了几种MIME类型，
+            // 在请求时会被写入请求中，以告知服务器期望的文件类型、crossDomain表示请求是否跨域、
+            // timeout用来设置可接受的请求时间，超时后停止请求，设置为0表示没有超时时间、
+            // processData表明是否对发起GET请求时的data属性进行进行编码以查询字符串的形式附加在URL后、
+            // cache表示是否缓存，浏览器自身会对资源缓存，而禁用缓存的原理是使用时间戳附加在URL生成唯一的
+            // URL从而禁用缓存。最后的dataFilter函数用来对请求返回的数据进行处理。
+            $.ajaxSettings={
+                type:'GET',
+                beforeSend:empty,
+                success:empty,
+                error:empty,
+                complete:empty,
+                context:null,
+                global:true,
+                xhr:function () {
+                    return new window.XMLHttpRequest()
+                },
+                accepts:{
+                    script:'text/javascript,application/javascript,application/x-javascript',
+                    json:jsonType,
+                    xml:'application/xml,text/xml',
+                    html:htmlType,
+                    text:'text/plain'
+                },
+                crossDomain:false,
+                timeout:0,
+                processData:true,
+                cache:true,
+                dataFilter:empty
+            }
+            // 有时我们会将Ajax请求配置对象中的mimeType设置为如"text/plain;
+            // charset=x-user-defined"这样的形式，这样，Ajax模块会调用xhr.overrideMimeType
+            // 函数来强制设置mimeType。mimeToDataType将通过mimeType返回对应的类型用于得到数据后的处理。
+            // 函数的内部现将分号前的字符提前出来，之后先后判断是否为html、json、script、xml、text。
+            function mimeToDataType(mime) {
+                if (mime) mime=mime.split(';',2)[0]
+                return mime&&(mime==htmlType?'html':
+                    mime==jsonType?'json':
+                    scriptTypeRE.test(mime)?'script':
+                    xmlTypeRE.test(mime)&&'xml')||'test'
+            }
+            function appendQuery(url,query) {
+                if (query=='') return url
+                return (url+'&'+query).replace(/)
+            }
 
 
             $.ajax = function(option) {
