@@ -1864,12 +1864,55 @@
                     scriptTypeRE.test(mime)?'script':
                     xmlTypeRE.test(mime)&&'xml')||'test'
             }
+            // appendQuery函数用来为URL附加查询字符串。例如：
+            // appendQuery('example.com','foo=1&bar=2')//example.com?foo=1&bar=2
             function appendQuery(url,query) {
                 if (query=='') return url
-                return (url+'&'+query).replace(/)
+                return (url+'&'+query).replace(/[&?]{1,2}/,?)
+            }
+            // serializeData在$.ajax内部调用，作用是当使用GET请求时将option.data
+            // 处理成字符串并调用刚刚说到的appendQuery函数追加到URL后。当使用POST时另有处理，因为POST请求数据得走send方法。
+            function serializeData(options) {
+                if (options.processData&&options.data&&$.type(options.data)!=='string')
+                    options.data=$.param(options.data,options.traditional);
+                if (options.data&(!options.type||options.type||options.type.toUpperCase()=='GET'||'jsonp'==options.dataType))
+                    options.url=appendQuery(options.url,options.data),options.data=undefined;
             }
 
 
+            // $.ajax是发起Ajax请求的入口函数，它对传入$.ajax函数的options配置对象进行解析
+            // ，从而设置MIME类型，设置请求头，监听readystatechange事件进而调用各种回调函数。
+            // 由于代码较长，我会将一部分讲解放在注释中。具体处理逻辑如下：
+            // 将配置对象options和$.ajaxSettings默认配置对象合并，形成最终使用的settings对象
+            // 调用ajaxStart函数，如果settings.global为true，触发全局的ajaxStart事件
+            // 调用serializeData函数序列化settings.data，如果是非POST请求的情况，则以查询字符串的形式附加在URL后
+            // 获取dataType，它表示开发者期望返回的数据类型
+            // 使用正则表达式判断URl是否是JSONP请求，如果是将dataType设为jsonp
+            // 处理缓存选项，如果cache为false，表示禁用缓存，这样会在URL后附加一个事件戳来使URL始终唯一从而实现禁用缓存。
+            // 如果未明确cache选项，进一步检测请求类型，如果是script或者jsonp，则禁用缓存。cache为ture表示使用缓存。
+            // 对于JSONP请求，逻辑进入$.ajaxJSONP函数
+            // 通过dataType属性设置合适的MIMEType类型并使用xhr.overrideMimeType函数进行强制设置浏览器对返回数据的类型识别
+            // 当使用POST请求方式时，使用contentType属性代表的编码方式对数据编码，默认是application/x-www-form-urlencoded
+            // 注册onreadystatehange事件，options中的如success之类的回调函数会在不同的阶段触发。前面提到了Ajax模块内部并未使用XHR 
+            // 2级 API，所以导致三个不同，它们分别是：如果想要对二进制数据方便地处理，
+            // 应该使用$.ajax函数返回的实际xhr对象上的responseType属性（一个2级API）来获取二进制文件，
+            // 所以这里产生了针对xhr.responseType的条件分支、对其他出二进制文件以外的数据直接responseText属性，
+            // 这意味着对json文件需要调用parseJSON函数来解析获取的文本、超时终止的处理方法是通过setTimeout函数设置
+            // 一个调用xhr.abort的回调函数来实现，而非xhr对象的timeout属性
+            // 在使用xhr.send方法前调用ajaxBeforeSend函数
+            // 设置是否为异步调用，其实浏览器默认的是同步调用
+            // 调用xhr.send函数发送请求 这里要注意一点：
+            // Zepto的Ajax模块因为没有封装responseType属性，所以当你想处理二进制文件是最好像这样：
+            // var xhr=$.ajax({
+            //       url: '1.jpg',
+            //       success:function (data) {
+            //         console.log(data)
+            //       }
+            //     })
+            // xhr.responseType='blob'
+            // 也就是对发起Ajax请求后返回的xhr对象添加responseType属性，
+            // 因为Ajax模块内部在请求成功后做了检测。这样，最终传给回调函数的data是
+            // response属性而非responseText属性。
             $.ajax = function(option) {
                 //扩展option对象,因为传入的options可能非常简略
                 var settings = $.extend({}, options || {});
@@ -1886,11 +1929,293 @@
                 if (!settings.crossDomain) {
                     urlAnchor=document.createElement('a')
                     urlAnchor.href=settings.url
-                    urlAnchor.href=urlAnchor.href;
-                    // 今天先写到这里
+                    urlAnchor.href = urlAnchor.href;
+                    settings.crossDomain=(originAnchor.protocol+'//'+originAnchor.host)!==(urlAnchor.protocol+'//'+urlAnchor.host)
                 }
+                if (!settings.url) settings.url=window.location.toString();
+                if ((hashIndex=settings.url.indexOf('#'))>-1) settigns.url=settings.url.slice(0,hashIndex);
+                serializeData(settigns)
+
+                var dataType=settings.dataType,hasPlaceholder=/\?.+=\?/.test(settings.url)
+                if (hasPlaceholder) dataType='jsonp';
+
+                if (settings.catch==false||(
+                        (!options||options.cache!==true)&&
+                        ('script'==dataType||'jsonp'==dataType)
+                    ))
+                    settings.url=appendQuery(settigns.url,'_='+Data.now())
+
+                if ('jsonp'==dataType) {
+                    if (!hasPlaceholder) {
+                        setting.url=appendQuery(settings.url,
+                            settings.jsonp?(settings.jsonp+'=?'):settings.jsonp===false?'':'callback=?')
+                    return $.ajaxJSONP(settigns,deferred);
+                    }
+                }
+
+                var mime=settings.accepts[dataType];
+                var headers={};
+                var setHeader=function (name,value) {
+                    headers[name.toLowerCase()]=[name,value]
+                };
+                var protocol=/^([\w-]+:)\/\//.test(settings.url)?RegExp.$1:window.location.protocol;
+                var xhr=settings.xhr();
+                var nativeSetHeader=xhr.setRequestHeader;
+                var abortTimeout;
+
+                if (deferred) deferred.promise(xhr)
+
+                if (!settings.crossDomain) setHeader('X-Requested-With','XMLHttpRequest')
+                setHeader('Accept',mime||'*/*')
+                if (mime=settings.mimeType||mime) {
+                    if (mime.indexOf(',')>-1) mime=mime.split(','2)[0];
+                    xhr.overrideMimeType&&xhr.overrideMimeType(mime);
+                }
+                if (settings.contentType||(settings.contentType!==false&&settings.data&&settings.type.toUpperCase()!='GET')) 
+                    setHeader('Content-Type',settigns.contentType||'application/x-www-form-urlencoded')
+
+                if (settings.headers)
+                    for(name in settings.headers) setHeader(name,settings.headers[name])
+                xhr.setRequestHeader=setHeader;
+
+                xhr.onreadystatechange=function () {
+                    if (xhr.readyState==4) {
+                        xhr.onreadystatechange=empty;
+                        clearTimeout(abortTimeout)
+                        var result;
+                        var error=false;
+                        if ((xhr.status>=200&&xhr.status<300)||xhr.status==304||(xhr.status==0&&protocol=='file:')) {
+                            dataType=dataType||mimeToDataType(settings.mimeType||xhr.getResponseHeader('content-type'))
+
+                            if (xhr.responseType=='arraybuffer'||xhr.responseType=='blob') 
+                                result=xhr.response
+                            else{
+                                result=xhr.responseText
+                                try{
+                                    result=ajaxDataFilter(result,dataType,settings)
+                                    if (dataType==='script') (1,eval)(result)
+                                    else if(dataType=='xml')result=xhr.responseXML
+                                    else if (dataType=='json')result=blankRE.test(result)?null:$.parseJSON(result)
+                                }catch(e){error=e}
+
+                                if (error) return ajaxError(error,'parsererror',xhr,settings,deferred)
+                            }
+
+                            ajaxSuccess(result,xhr,settings,deferred)
+                        }else {
+                            ajaxError(xhr.statusText||null,xhr.status?'error':'abort',xhr,settings,deferred)
+                        }
+                    }
+                }
+
+                if (ajaxBeforeSend(xhr,settings)===false) {
+                    xhr.abort();
+                    ajaxError(null,'abort',xhr,settings,defeered)
+                    return xhr
+                }
+                var async='async' in settings?settings.async:true;
+                xhr.open(settins.type,settings.url,async,settings.username,settings.password)
+
+                if (settings.xhrFields)
+                    for(name in settings.xhrFields)xhr[name]=settings.xhrFields[name]
+
+                for(name in headers) nativeSetHeader.apply(xhr,headers[name])
+
+                if (settings.timeout>0) abortTimeout=setTimeout(function () {
+                    xhr.onreadystatechange=empty;
+                    xhr.abort();
+                    ajaxError(null,'timeout',xhr,settings,deferred)
+                },settings.timeout)
+
+                xhr.send(settings.data?settings.data:null);
+                return xhr
+            }
+            // parseArguments函数用来解析四个参数，并返回一个可以传入$.ajax函数的对象，
+            // 用在$.get等简写方法内。代码前面的if语句用来处理不同参数个数的情况。
+            function parseArguments(url,data,success,dataType) {
+                if ($.isFunction(data)) dataType=success,success=data,data=undefined;
+                if (!$.isFunction(success)) dataType=success,success=undefined;
+                return{
+                    url:url,
+                    data:data,
+                    success:success,
+                    dataType:dataType
+                }
+            }
+            // 三个常用的简写方法，使用了前面介绍的parseArguments函数，注意这里因为这三个参数的个数会有不同情况，
+            // 所以使用了函数对象的apply方法调用。
+            $.get=function (/* url, data, success, dataType */ ) {
+                return $.ajax(parseArguments.appley(null,arguments))
+            }
+            $.post=function (/* url, data, success, dataType */ ) {
+                var options=parseArguments.appley(null,arguments)
+                options.type='POST';
+                return $.ajax(options)
+            }
+
+            $.getJSON=function (/* url, data, success */ ) {
+                var options=parseArguments.apply(null,arguments)
+                options.dataType='json'
+                return $.ajax(options)
+            }
+
+
+            // load函数用来加载html片段，它和普通的Ajax请求没有区别，
+            // 只是通过innerHTML方法将返回的文本文件的字符填入一个DOM片段中，
+            // 形成一个新的DOM片段，这样就可以在文档中使用了。有时候只需要将返回的DOM片段
+            // 中符合某个选择器的片段提取出来，只需要在url后加个空格之后再跟上一个选择器就行，
+            // 所以，函数中将url分成两部分，之后再进行选取。
+            $.fn.load=function (url,data,success) {
+                if (!this.lenth) return this
+                var self=this;
+                var parts=url.split(/\s/);
+                var selector;
+                var options=parseArguments(url,data,success)
+                var callback=options.success;
+                if (parts.length>1) options.url=parts[0],selector=parts[1];
+                options.success=function (response) {
+                    self.html(selector?
+                        $('<div>').html(response.replace(rscript,"")).find(selector):
+                        response)
+                    callback&&callback.apple(self,arguments)
+                }
+                $.ajax(options)
+                return this;
+            }
+
+
+            // 之后会使用encodeURIComponent函数进行对字符串编码最后拼接到URL。
+            var escape=encodeURIComponent;
+
+            // $.param函数用来将对象序列化且编码为在URL中合法的字符串。它用在GET请求附加data时，
+            // data往往是个对象，这时需要序列化和编码。因为空格会被编码成%20，但URL中空格应该是+，
+            // 所以这里使用了replace方法处理。$.param函数内部调用了serialize函数。
+            // 至此Zepto中的Ajax模块已经完成。接下来仍有一个处理表单的模块，规模很小，不过封装了几个常用的工具函数。
+            function serialize(params,obj,traditional,scope) {
+                var type;
+                var array=$.isArray(obj);
+                var hash=$.isPlainObject(obj);
+                $.each(obj,function (key,value) {
+                    type=$.type(value)
+                    if (scope) key=traditional?scope:
+                        scope+'['+(hash||type=='object'||type=='array'?key:'')+']'
+                    if (!scope&&array) params.add(value.name,value.value);
+                    else if (type=='array'||(!traditional&&type==='object'))
+                        serialize(params,value,traditional,key)
+                    else params.add(key,value)
+                })
+            }
+            $.param=function (obj,traditional) {
+                var params=[]
+                params.add=function (key,value) {
+                    if ($.isFunction(value)) value=value();
+                    if (value==null) value='';
+                    this.push(escape(key)+'='+escape(value))
+                }
+                serialize(params,obj,traditional)
+                return params.join('&').replace(/%20/g,'+')
             }
         })(Zepto)
 
+
+        // 表单模块
+        // 表单模块提供了三个方法，前两个用来序列化表单，最后一个用来提交表单。
+        (function ($) {
+            // $.fn.serializeArray函数将表单元素的值序列化为一个数组，就像下面一样。
+            // 函数内部需要注意的实现有两点：
+            // HTMLFormElement.elements属性返回一个HTMLFormControlsCollection对象，
+            // 里面包含了一个表单元素下的所有除type='image'的表单控件元素。
+            // add函数中如果参数是数组，意味着则遍历数组在内部调用多次add函数。
+            // 比如带有multiple属性的多选select就会被这样处理
+            $.fn.serializeArray=function () {
+                var name;
+                var type;
+                var result=[];
+                var add=function (value) {
+                    if (value.forEach) return value.forEach(add)
+                    result.push({name:name,value:value})
+                }
+                if (this[0]) $.each(this[0].elements,function (_,field) {
+                    type=field.type;
+                    name=field.name;
+                    if (name&&field.nodeName.toLowerCase()!='fieldset'&&
+                        !field.display&&type!='submit'&&type!='reset'&&type!='button'&&type!='file'&&
+                        ((type!='radio'&&type!='checkbox')||field.checked)) 
+                        add($(field).val());
+                })
+                return result
+            }
+            // 另外一种形式的序列化，返回一个可以作为URL查询的字符串。之前的数组序列化中，
+            // 序列化的每个结果作为对象存在。现在，将对象逐个解构。
+            $.fn.serialize=function () {
+                var result=[];
+                this.serializeArray().forEach(function (elm) {
+                    result.push(encodeURIComponent(elm.name)+'='+encodeURIComponent(elm.value))
+                })
+                return result.join('&')
+            }
+            // submit函数用来触发表单提交。
+            $.fn.submit=function (callback) {
+                if (0 in arguments) this.bind('submit',callback)
+                else if(this.length){
+                    var event=$.Event('submit');
+                    this.eq(0).trigger(event);
+                    if (!event.isDefaultPrevented()) this.get(0).submit();
+                }
+                return this;
+            };
+
+            (function () {
+                try{
+                    getComputedStyle(undefined)
+                }catch(e){
+                    var nativeGetComputedStyle=getComputedStyle;
+                    window.getComputedStyle=function (element,pseudoElement) {
+                        try{
+                            return nativeGetComputedStyle(element,pseudoElement)
+                        }catch(e){
+                            return null
+                        }
+                    }
+                }
+            })
+
+            /*说说感想
+            JavaScript数组方法的应用。
+            Array.prototype上的方法内部原理是使用数组的下标和length属性的，这意味着可以在类数组上调用
+            JavaScript是弱类型语言。
+            这种特性提供了很多便利，不过这导致了有时我们需要对传入函数的参数进行类型检查，对与强类型，参见TypeScript
+            过多使用三元运算符和逻辑或、逻辑与运算符来进行分支控制会大大增加代码阅读难度，
+            所以它们的大规模应用往往集中于生产环境中的代码压缩与混淆。不过有时还是很便利的，
+            尤其是=需要返回值得时候。比如：
+             Generate the `after`, `prepend`, `before`, `append`,
+             `insertAfter`, `insertBefore`, `appendTo`, and `prependTo` methods.
+             target = operatorIndex == 0 ? target.nextSibling :
+                             operatorIndex == 1 ? target.firstChild :
+                             operatorIndex == 2 ? target :
+                             null
+
+
+            对分号使用的思考。JavaScript可以不使用分号，
+            这得益于JavaScript中对语句是否结束的判断原则——
+            大部分情况下如果一行的末尾不会与下一行的开头组合起来形成语句，
+            那么不使用分号也会被认为语句已经结束了。但还是要注意特殊情况，
+            这说明如果想省点心，稳健一点的话最好还是使用分号
+
+            思考哪些操作会是项目中的基本操作，将它们抽象出来。
+            在Zepto中，大量的API都是对整个集合进行遍历的。
+            这样一个编写良好的基础函数$.fn.each就很重要了。这会让程序更简洁而可靠
+
+            利用函数参数的个数的变化来实现不同的操作。
+            这是一种API风格，他在jQuery和Zepto中广泛存在，
+            比如$.fn.width方法在没有参数提供时表示获取值，
+            而有参数时表示赋值。合理地使用这种风格可以让API更符合直觉和易用
+
+            对于不暴露给开发者的内部函数，没有必要对参数进行太多检测，
+            毕竟参数的传入受控制较多。然而，暴露出来的API中应该对不同情形有着充分的考虑。
+
+            我们总是不喜欢使用try...catch语句，因为不喜欢“异常”，不过它在检测浏览器对某些特性否则支持时很有用
+            */
+        })(Zepto)
     })()
 })
