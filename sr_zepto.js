@@ -1,4 +1,13 @@
+// Zepto的最外层是个典型的IIFE。
 (function(global, factory) {
+    // 在Zepto的最外层代码中，先检测当前环境是否支持AMD，
+    // 如果支持则调用defined函数来生成AMD模块。也就是说，
+    // factory(global)将会返回一个对象，而这个对象就是Zepto入口函数对象。
+    // 不支持AMD则直接调用，返回的入口对象将不会被捕获，
+    // 因为factory函数内部将直接将入口函数添加在全局对象上，所以并不会影响访问。
+
+    // 在最外层代码中，非严格模式下的this关键词将指向window，
+    // 这个是接下来代码运行的关键。所以，最终情况是factory函数以window对象为参数，在内部生成了Zepto入口对象并返回。
     if (typeof define === 'function' && define.amd) {
         define(function() {
             return factory(global)
@@ -10,7 +19,8 @@
     //核心模块
     var Zepto = (function() {
         var undefined, key, $, classList, emptyArray = [],
-            //获得数组concat、fliter、slice的引用，数组方法是可以在类数组上调用的，因为这些方法只涉及数字下标和length属性
+            //获得数组concat、fliter、slice的引用，数组方法是可以在类数组上调用的，
+            // 因为这些方法只涉及数字下标和length属性
             concat = emptyArray.concat,
             filter = emptyArray.filter,
             slice = emptyArray.slice,
@@ -55,7 +65,8 @@
             //检测是否是“简单选择器”
             simpleSelectorRE = /^[\w-]*$/,
             class2type = {},
-            //获取Object.prototype.toString的引用，用来识别对象类型，如Object.prototype.toString.call([])将返回[object Array],表明这是一个数组
+            //获取Object.prototype.toString的引用，用来识别对象类型，
+            // 如Object.prototype.toString.call([])将返回[object Array],表明这是一个数组
             toString = class2type.toString,
             Zepto = {},
             camelize, uniq,
@@ -83,11 +94,13 @@
         //检查元素是否与某个选择器匹配
         zepto.matches = function(element, selector) {
             // nodeType 1 element   元素节点
+            //如果没有元素或者没有选择器或者传入的不是一个元素节点 那么返回错误
             if (!selector || !element || element.nodeType !== 1) {
                 return false;
             }
             //判断函数是否实现了matchesSelector
-            var matchesSelector = element.matches || //matches 方法可在字符串内检索指定的值，或找到一个或多个正则表达式的匹配。
+            //matches 方法可在字符串内检索指定的值，或找到一个或多个正则表达式的匹配。
+            var matchesSelector = element.matches ||
                 element.webkitMatchesSelector || //谷歌的兼容方法
                 element.mozMatchesSelector || //火狐的兼容方法
                 element.oMatchesSelector ||
@@ -117,11 +130,7 @@
         function type(obj) {
             //如果传入的对象是null 就字符串化之后返回
             return obj == null ? String(obj) :
-                //否贼就帮之后便是调用Object.prototype函数的toString方法。其他的全是object。
-                //为什么这里要class2type[toString.call(obj)]  一个空对象一定是空啊..难道
-                //后面这里要赋值其他可以输出?预留接口?
-
-                //已经解决 下面很坑爹的藏了一段代码帮所有的数据类型全部放到了class2type里面
+                //否则就帮之后便是调用Object.prototype函数的toString方法。其他的全是object。
                 class2type[toString.call(obj)] || "object"
         }
         //这里更奇怪  上一个函数测试之后除了null和undefined都是object
@@ -193,7 +202,7 @@
             })
         }
         /*
-            用来判定类名中是否存在classname 可能存在于 开始  中间 和结尾
+            用来判定类名中是否存在classname 可能存在于 开始  中间 结尾
         */
         function classRE(name) {
             return name in classCache ?
@@ -243,11 +252,11 @@
         否则先获取最外层的标签名,之后使用innerHTML注入字符串到合适的容器中,最后分别取出形成
         数组,另外如果有properties对象的,将刚刚形成的dom节点列表生成Zepto集合在调用attr方法
         设置 最后返回
-        需要注意的是表格内部的标签只能存在table及内部的入tbody标签内否则只会留下换行的康哥节点
-        所以需要获取合适的父容器
+        需要注意的是表格内部的标签只能存在table及内部的入tbody标签内否则只会留下换行的空格节点
+        所以需要获取合适的父容器a.
         */
         zepto.fragment = function(html, name, properties) {
-            var dom, nodes ncontainer
+            var dom, nodes ,ncontainer
             //检查是否是非嵌套标签,如果是非嵌套标签 那么则创建一个标签
             if (singleTagRe.text(html)) dom = $(document.createElement(RegExp.$1))
             //如果是嵌套标签 也就是dom没有被赋值的状态
@@ -380,10 +389,10 @@
         Zepto.qsa = function(element, selector) {
             var found,
                 maybeID = selector[0] == '#',
-                maybeClass = !maybeID && mybeClass ? selector[0] == '.',
+                maybeClass = !maybeID && selector[0] == '.',
                 nameOnly = maybeID || maybeClass ? selector.slice(1) : selector,
                 isSimple = simpleSelectorRE.test(nameOnly)
-            return (element.getElementsById && isSimple && maybeID) ?
+            return (element.getElementById && isSimple && maybeID) ?
                 ((found = element.getElementById(nameOnly)) ? [found] : []) :
                 (element.nodeType !== 1 && element.nodeType !== 9 && element.nodeType !== 11) ? [] :
                 slice.call(
